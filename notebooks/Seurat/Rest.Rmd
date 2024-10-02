@@ -1,0 +1,527 @@
+---
+title: "scRNAseq exercise"
+subtitle: '`r format(Sys.Date(),format="%d-%b-%Y")`'
+output:
+  rmarkdown::html_document:
+    toc: true
+    toc_float:
+      collapsed: true
+      smooth_scroll: true
+      print: false
+    toc_depth: 4
+    number_sections: true
+    highlight: tango
+    df_print: paged
+    code_folding: "show" #show
+    self_contained: true
+    keep_md: false
+    encoding: 'UTF-8'
+    css: "assets/report.css"
+---
+
+```{r,child="assets/_header-lab.Rmd"}
+```
+
+<!-- ----------------------- Do not edit above this ----------------------- -->
+
+```{r,echo=FALSE,include=FALSE}
+# CUSTOM VARIABLES
+
+# custom ggplot theme
+theme_report_h <- function (base_size=12,base_family=NULL,colour="grey60") {
+  theme_bw(base_size=base_size,base_family=base_family) %+replace%
+    theme(
+      panel.border=element_blank(),
+      panel.grid.minor=element_blank(),
+      panel.grid.major.x=element_blank(),
+      legend.position="top",
+      legend.direction="horizontal",
+      legend.justification="center",
+      strip.background=element_blank(),
+      axis.ticks.y=element_blank(),
+      axis.ticks.x=element_line(colour=colour),
+      plot.caption=element_text(hjust=0,colour=colour,size=10),
+      plot.title=element_text(colour=colour),
+      plot.subtitle=element_text(colour=colour)
+    )
+}
+
+# custom ggplot theme
+theme_report <- theme_report_v <- function (base_size=12,base_family=NULL,colour="grey60") {
+  theme_bw(base_size=base_size,base_family=base_family) %+replace%
+    theme(
+      panel.border=element_blank(),
+      panel.grid.minor=element_blank(),
+      panel.grid.major.x=element_blank(),
+      legend.position="right",
+      legend.direction="vertical",
+      legend.justification="center",
+      strip.background=element_blank(),
+      axis.ticks.y=element_blank(),
+      axis.ticks.x=element_line(colour=colour),
+      plot.caption=element_text(hjust=0,colour=colour,size=10),
+      plot.title=element_text(colour=colour),
+      plot.subtitle=element_text(colour=colour)
+    )
+}
+
+# custom ggplot theme
+theme_simple_h <- function (base_size=12,base_family=NULL,colour="grey60") {
+  theme_bw(base_size=base_size,base_family=base_family) %+replace%
+    theme(
+      panel.border=element_blank(),
+      panel.grid=element_blank(),
+      legend.justification="center",
+      legend.position="top",
+      legend.direction="horizontal",
+      strip.background=element_blank(),
+      axis.ticks=element_blank(),
+      axis.text=element_blank(),
+      axis.title=element_blank(),
+      plot.caption=element_text(hjust=0,colour=colour,size=10),
+      plot.title=element_text(colour=colour),
+      plot.subtitle=element_text(colour=colour)
+    )
+}
+
+# custom ggplot theme
+theme_simple_v <- function (base_size=12,base_family=NULL,colour="grey60") {
+  theme_bw(base_size=base_size,base_family=base_family) %+replace%
+    theme(
+      panel.border=element_blank(),
+      panel.grid=element_blank(),
+      legend.justification="center",
+      legend.position="right",
+      legend.direction="vertical",
+      strip.background=element_blank(),
+      axis.ticks=element_blank(),
+      axis.text=element_blank(),
+      axis.title=element_blank(),
+      plot.caption=element_text(hjust=0,colour=colour,size=10),
+      plot.title=element_text(colour=colour),
+      plot.subtitle=element_text(colour=colour)
+    )
+}
+
+#colours
+col_sll_green <- "#95C11E"
+col_sll_blue <- "#0093BD"
+col_sll_orange <- "#EF7C00"
+col_sll_green_light <- "#f4f8e8"
+col_sll_blue_light <- "#e5f4f8"
+col_sll_orange_light <- "#fdf1e5"
+
+```
+
+
+</br>
+
+```{r,eval=FALSE,echo=FALSE}
+# manually run this to render this document to HTML
+rmarkdown::render("scRNAseqExercise.Rmd")
+# then run this to convert HTML to PDF (if needed)
+#pagedown::chrome_print("nbis-report.html",output="nbis-report.pdf")
+```
+
+
+```{r}
+# if (!require("BiocManager", quietly = TRUE))
+#     install.packages("BiocManager")
+# 
+# BiocManager::install("scran")
+
+suppressPackageStartupMessages({
+    library(Seurat)
+    library(ggplot2) # plotting
+    library(patchwork) # combining figures
+    library(dplyr)
+    library(xlsx)
+})
+```
+
+
+# Import data
+
+```{r}
+data.filt = readRDS("results/data.filt.RDS")
+data.filt
+```
+
+# Select highly variable genes
+
+```{r}
+# selection.method = "vst": i.e. seurat_v3.
+suppressWarnings(suppressMessages(data.filt <- FindVariableFeatures(data.filt, selection.method = "vst", 
+                                                  nfeatures = 2000, verbose = FALSE, assay = "RNA")))
+
+top20 <- head(VariableFeatures(data.filt), 20)
+
+LabelPoints(plot = VariableFeaturePlot(data.filt), points = top20, repel = TRUE)
+```
+
+# Scaling and regress out unwanted variation
+
+Scale the data, here, we can regress out some unwanted variation, but first we need to identify those unwanted variation
+
+```{r}
+data.filt <- ScaleData(data.filt, assay = "RNA")
+data.filt <- RunPCA(data.filt, npcs = 50, verbose = F)
+## $Plot contribution of metadata to each PCs
+print("Plot contribution of metadata to each PCs...")
+dummy = SingleCellExperiment::SingleCellExperiment(
+  list(pc_space=t(data.filt@reductions$pca@cell.embeddings[, 1:10])), 
+  colData=data.filt@meta.data[, c("nCount_RNA", "nFeature_RNA", "percent_mito", 
+                                  "percent_ribo", "S.Score", "G2M.Score", "Phase")])
+explan_pcs = scater::getVarianceExplained(dummy, exprs_values="pc_space")
+
+scater::plotExplanatoryPCs(explan_pcs/100)
+```
+
+From the plot above, we can see that, nFeature_RNA, nCount_RNA, percent_ribo, Phase, S.Score, percent.mit, G2M.Score explain more than 1% of the varaince, we need to regress them out duing scaling
+
+- nFeature_RNA and nCount_RNA are highly positively correlated, we just need to regress out one of them
+- We already know from last tutorial Phase is not accurate, so we will regres out S.Score and G2M.Score instead. Though sometimes, one may want to keep the cell cycle info in the data.
+- percent_ribo often contain useful biological information, we can consider removing ribosomal protein genes, but not regress them out
+- For sure, we can regress out percent.mit, because it is often correlated with cell quality
+
+Scaling and regress out unwanted variation at the same time
+
+```{r}
+data.filt <- ScaleData(data.filt, assay = "RNA", vars.to.regress = c("nFeature_RNA", "S.Score", "G2M.Score", "percent.mit"))
+```
+
+
+
+
+# Dimensional Reduction: PCA
+
+```{r}
+data.filt <- RunPCA(data.filt, npcs = 50, verbose = F)
+
+# run ?RunPCA to check for more parameters
+# By default, RunPCA will use the highly variable features for building PCA
+```
+
+```{r, fig.height=2.5, fig.width=8}
+wrap_plots(
+    DimPlot(data.filt, reduction = "pca", group.by = "orig.ident", dims = 1:2),
+    DimPlot(data.filt, reduction = "pca", group.by = "orig.ident", dims = 3:4),
+    DimPlot(data.filt, reduction = "pca", group.by = "orig.ident", dims = 5:6),
+    ncol = 3
+) + plot_layout(guides = "collect")
+```
+
+```{r, fig.height=6, fig.width=15}
+# Visualize the gene loadings on each PCs.
+VizDimLoadings(data.filt, dims = 1:5, reduction = "pca", ncol = 5, balanced = T)
+```
+
+Mainly the top PCs contain useful information, the rest of the PCs (principal components) may mostly contain random noises. In Seurat, the tSNE and UMAP analyses below are based on the PCA result, we will only select the top significant PCs and feed them to tSNE and UMAP.
+
+How do we select the top PCs?
+
+A common method for determining the number of PCs to be retained is a graphical representation known as an elbow plot. An elbow plot is a simple line segment plot that shows the eigenvalues (i.e. variability explained) for each individual PC. It shows the eigenvalues on the y-axis and the number of PCs on the x-axis. It always displays a downward curve. Most elbow plots look broadly similar in shape, starting high on the left, falling rather quickly, and then flattening out at some point. This is because the first component usually explains much of the variability, the next few components explain a moderate amount, and the latter components only explain a small fraction of the overall variability. The elbow plot criterion looks for the “elbow” in the curve and selects all components just before the line flattens out.
+
+```{r}
+ElbowPlot(data.filt, reduction = "pca", ndims = 50)
+```
+
+Here, 10 looks a good number to keep, but we usually keep a bit more than that to make sure we get most of the useful information, Let's keep 15 instead.
+
+
+
+# Dimensional reduction: tSNE
+
+```{r}
+data.filt <- RunTSNE(
+    data.filt,
+    reduction = "pca", dims = 1:15,
+    perplexity = 30, # low perplexity: finer structure
+    max_iter = 1000,
+    theta = 0.5,
+    eta = 200,
+    num_threads = 0
+)
+
+# run ?RunTSNE to see how to adjust parameters.
+```
+
+```{r}
+DimPlot(data.filt, reduction = "tsne", group.by = "orig.ident",
+        pt.size=0.1)
+# run ?DimPlot to see how to adjust parameters. 
+```
+
+What does each dot represent in the sSNE plot?
+
+# Dimensional reduction: UMAP
+
+```{r}
+data.filt <- RunUMAP(
+    data.filt,
+    reduction = "pca",
+    dims = 1:15,
+    n.components = 2,
+    n.neighbors = 30,
+    n.epochs = 200,
+    min.dist = 0.3,
+    learning.rate = 1,
+    spread = 1
+)
+
+# Run ?RunUMAP to see how to adjust the parameters
+
+# Larger values will result in more global structure being preserved at the loss of detailed local structure. In general this parameter should often be in the range 5 to 50.
+# min_dist: The minimum distance between two points in the UMAP embedding.
+# spread: A scaling factor for distance between embedded points.
+```
+
+```{r}
+DimPlot(data.filt, reduction = "umap", group.by = "orig.ident") + ggplot2::ggtitle(label = "UMAP_on_PCA")
+```
+
+How different it is between a tSNE plot and a UMAP plot?
+
+Let's plot all three dimensional reduciton plots together
+
+```{r, fig.height=2.5, fig.width=8}
+wrap_plots(
+    DimPlot(data.filt, reduction = "pca", group.by = "orig.ident"),
+    DimPlot(data.filt, reduction = "tsne", group.by = "orig.ident"),
+    DimPlot(data.filt, reduction = "umap", group.by = "orig.ident"),
+    ncol = 3
+) + plot_layout(guides = "collect")
+```
+
+Apart from that, UMAP can also be built on the selected highly variable genes and on Graph.
+
+|Markers|Cell Type|
+|:---|:---|
+|CD3E|T cells|
+|CD3E CD4|CD4+ T cells|
+|CD3E CD8A|CD8+ T cells|
+|GNLY, NKG7|NK cells|
+|MS4A1|B cells|
+|CD14, LYZ, CST3, MS4A7|CD14+ Monocytes|
+|FCGR3A, LYZ, CST3, MS4A7|FCGR3A+  Monocytes|
+|FCER1A, CST3|DCs|
+
+Plot the marker genes on the UMAP plot:
+
+```{r, fig.height=8, fig.width=15}
+myfeatures <- c("CD3E", "CD4", "CD8A", "NKG7", "GNLY", 
+  "MS4A1", "CD14", "LYZ", "MS4A7", "FCGR3A", "CST3", "FCER1A")
+FeaturePlot(data.filt, reduction = "umap", dims = 1:2, 
+            features = myfeatures, ncol = 4, order = T) +
+            NoLegend() + NoAxes() + NoGrid()
+```
+
+Based on the marker gene distribution, can you guess approximately (using manual annotation) what cell types the cells belong to.
+
+# Automatic cell type annotation
+
+For demonstration, here, we will only run one cell&reference-based automatic annotation, called label transfer (From Seurat). But, instead of CCA, which is the default for the `FindTransferAnchors()` function, we will use `pcaproject`, ie; the query dataset is projected onto the RPCA of the reference dataset. Then, the labels of the reference data will be transfered to sufficiently similar ones in the query dataset.
+
+* CCA-based integration therefore enables integrative analysis when experimental conditions or disease states introduce very strong expression shifts, or when integrating datasets across modalities and species. However, CCA-based integration may also lead to overcorrection, especially when a large proportion of cells are non-overlapping across datasets.
+
+* RPCA-based integration runs significantly faster, and also represents a more conservative approach where cells in different biological states are less likely to ‘align’ after integration. We therefore recommend RPCA during integrative analysis where:
+
+- A substantial fraction of cells in one dataset have no matching type in the other
+- Datasets originate from the same platform (i.e. multiple lanes of 10x genomics)
+- There are a large number of datasets or cells to integrate (see here for more tips on integrating large datasets)
+
+
+First, download the reference data
+
+```{r}
+# devtools::install_github("immunogenomics/harmony")
+# devtools::install_github("powellgenomicslab/scPred")
+reference <- scPred::pbmc_1
+reference
+```
+
+Here, we will run all the steps that we did in previous labs in one go with the pipe-operator `%>%`.
+
+```{r}
+reference <- reference %>%
+    NormalizeData() %>%
+    FindVariableFeatures() %>%
+    ScaleData() %>%
+    RunPCA(verbose = F) %>%
+    RunUMAP(dims = 1:15)
+```
+
+
+```{r}
+transfer.anchors <- FindTransferAnchors(
+    reference = reference, query = data.filt,
+    dims = 1:15
+)
+predictions <- TransferData(
+    anchorset = transfer.anchors, refdata = reference$cell_type,
+    dims = 1:15
+)
+data.filt <- AddMetaData(object = data.filt, metadata = predictions)
+```
+
+```{r, fig.height=3, fig.width=6}
+wrap_plots(
+    DimPlot(reference, reduction = "umap", group.by = "cell_type"),
+    DimPlot(data.filt, reduction = "umap", group.by = "predicted.id"),
+    ncol = 2
+) + plot_layout(guides = "collect")
+```
+
+For the two figures above, the one to the left is the reference dataset, while the one to the right is the predicted lables in the query dataset. Do you think they more or less agree with your preliminary manual annotation?
+
+- cMono: classical monocyte, i.e. CD14+ monocyte
+- ncMono: non-classical monocyte.
+
+For other automatic annotation methods, please see my lectures.
+
+# Clustering
+
+```{r}
+# First we need to build SNN Graph
+data.filt <- FindNeighbors(data.filt,
+    reduction = "pca",
+    assay = "RNA",
+    k.param = 20,
+    features = VariableFeatures(data.filt)
+)
+
+# SNN was built based on pca as well as the highly variable features.
+# run ?FindNeighbors to see how to adjust the parameters
+
+# Clustering with louvain (algorithm 1) and a few different resolutions
+for (res in c(0.1, 0.25, .5, 1, 1.5, 2, 2.5, 3, 3.5)) {
+    data.filt <- FindClusters(data.filt, graph.name = "RNA_snn", resolution = res, algorithm = 1)
+}
+
+# ?FindClusters 
+# each time you run clustering, the data is stored in meta data columns:
+# seurat_clusters - lastest results only
+# snn_res.XX - for each different resolution you test.
+```
+
+Plot the clustering results
+
+```{r, fig.height=9, fig.width=9}
+wrap_plots(
+    DimPlot(data.filt, reduction = "umap", group.by = "RNA_snn_res.0.1") + ggtitle("louvain_0.1"),
+    DimPlot(data.filt, reduction = "umap", group.by = "RNA_snn_res.0.25") + ggtitle("louvain_0.25"),
+    DimPlot(data.filt, reduction = "umap", group.by = "RNA_snn_res.0.5") + ggtitle("louvain_0.5"),
+    DimPlot(data.filt, reduction = "umap", group.by = "RNA_snn_res.1") + ggtitle("louvain_1"),
+    DimPlot(data.filt, reduction = "umap", group.by = "RNA_snn_res.1.5") + ggtitle("louvain_1.5"),
+    DimPlot(data.filt, reduction = "umap", group.by = "RNA_snn_res.2") + ggtitle("louvain_2"),
+    DimPlot(data.filt, reduction = "umap", group.by = "RNA_snn_res.2.5") + ggtitle("louvain_2.5"),
+    DimPlot(data.filt, reduction = "umap", group.by = "RNA_snn_res.3") + ggtitle("louvain_3"),
+    DimPlot(data.filt, reduction = "umap", group.by = "RNA_snn_res.3.5") + ggtitle("louvain_3.5"),
+    ncol = 3
+)
+```
+
+Which clustering resolution give a result that mostly agrees with out annotation? It's hard to see! It looks that resolution 0.1 holds the highest similarity.
+Let's check the quality of the cells first:
+
+```{r, fig.height=6, fig.width=10.5}
+feats <- c("nFeature_RNA", "nCount_RNA", "percent_mito", "percent_ribo", "percent_hb", "percent_plat")
+FeaturePlot(data.filt, features=feats, ncol=3)
+```
+
+Nothing obviously wrong!
+
+What should we do? which one to choose! I recommend that at this stage, talk to your PI, and ask which version make the most biological sense.
+
+During this process, try to get the differential genes for two or three sets of clusters you feel hard to choose from, and compare the differential genes and see with the help of more marker genes from the differential tables, whether you can decide on one that makes the most sense.
+
+# Differential gene analysis
+
+For demonstration, here, we will identify the differential genes of the label transfer-predicted cell types
+
+From the differential gene results, we can check whether the marker genes for a particular celltype will appear in the differentially expressed gene list for the corresponding cluster.
+
+One can also use differential analysis for exploring new marker genes.
+
+Wilcoxon rank-sum is a non-parametrical differential analysis method. You might also consider much more powerful differential testing packages like MAST, LR, limma, DESeq2.
+
+we will run `FindAllMarkers` to test one cluster vs the rest, the largest celltype (T cell) will dominate the "rest" and influence the results the most. So it is often a good idea to subsample the clusters to an equal number of cells before running differential expression for one vs the rest. So lets select 30 cells per cell  type here:
+
+```{r}
+# Check cell number per celltype:
+table(data.filt$predicted.id)
+data.filt$predicted.id = factor(data.filt$predicted.id, levels=names(table(data.filt$predicted.id)))
+# Identify differential genes for each celltype
+Idents(data.filt) = data.filt$predicted.id
+markers_genes <- FindAllMarkers(
+    data.filt,
+    log2FC.threshold = 0.2,
+    test.use = "wilcox",
+    min.pct = 0.1,
+    min.diff.pct = 0.2,
+    only.pos = TRUE,
+    max.cells.per.ident = 30, # downsample each cell type to 30
+    assay = "RNA",
+    min.cells.group = 1
+)
+
+# Run ?FindAllMarkers to adjust for parameters!
+
+# Filter the marker genes
+markers_genes = markers_genes %>% filter(p_val_adj<0.1)
+# Check the acquired number of marker genes per cell type:
+table(markers_genes$cluster)
+```
+
+Plot the top marker genes: 
+
+```{r, fig.height=3.5, fig.width=18}
+markers_genes %>%
+    group_by(cluster) %>%
+    slice_min(p_val_adj, n = 5, with_ties = FALSE) -> top5_sub
+
+DotPlot(data.filt, features = rev(as.character(unique(top5_sub$gene))), 
+        group.by = "predicted.id", assay = "RNA") + #coord_flip() +
+        theme(axis.text.x = 
+               element_text(angle = 30, vjust = 1, hjust=1))
+```
+
+Save the differential gene table into an excel file and now you can make some UMAP plots and take them to your PI and discuss.
+
+```{r}
+write.xlsx(as.data.frame(markers_genes), 
+            "results/DEGs_predicted.id.xlsx",
+             col.names=TRUE, row.names=FALSE)
+
+```
+
+
+# Save data
+
+```{r}
+saveRDS(data.filt, "results/data.analyzed.RDS")
+```
+
+
+
+
+# Recap
+
+* Select highly variable genes
+* Scaling and regress out unwanted variation
+* Dimensional reduction: PCA
+* Dimensional reduction: tSNE
+* Dimensional reduction: UMAP
+* Clustering 
+* Differential gene analysis
+
+# Session info
+
+```{r}
+sessionInfo()
+```
+
+
+
+
+

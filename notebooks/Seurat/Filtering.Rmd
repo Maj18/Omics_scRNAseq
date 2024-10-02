@@ -1,0 +1,454 @@
+---
+title: "scRNAseq exercise"
+subtitle: '`r format(Sys.Date(),format="%d-%b-%Y")`'
+output:
+  rmarkdown::html_document:
+    toc: true
+    toc_float:
+      collapsed: true
+      smooth_scroll: true
+      print: false
+    toc_depth: 4
+    number_sections: true
+    highlight: tango
+    df_print: paged
+    code_folding: "show" #show
+    self_contained: true
+    keep_md: false
+    encoding: 'UTF-8'
+    css: "assets/report.css"
+---
+
+```{r,child="assets/_header-lab.Rmd"}
+```
+
+<!-- ----------------------- Do not edit above this ----------------------- -->
+
+```{r,echo=FALSE,include=FALSE}
+# CUSTOM VARIABLES
+
+# custom ggplot theme
+theme_report_h <- function (base_size=12,base_family=NULL,colour="grey60") {
+  theme_bw(base_size=base_size,base_family=base_family) %+replace%
+    theme(
+      panel.border=element_blank(),
+      panel.grid.minor=element_blank(),
+      panel.grid.major.x=element_blank(),
+      legend.position="top",
+      legend.direction="horizontal",
+      legend.justification="center",
+      strip.background=element_blank(),
+      axis.ticks.y=element_blank(),
+      axis.ticks.x=element_line(colour=colour),
+      plot.caption=element_text(hjust=0,colour=colour,size=10),
+      plot.title=element_text(colour=colour),
+      plot.subtitle=element_text(colour=colour)
+    )
+}
+
+# custom ggplot theme
+theme_report <- theme_report_v <- function (base_size=12,base_family=NULL,colour="grey60") {
+  theme_bw(base_size=base_size,base_family=base_family) %+replace%
+    theme(
+      panel.border=element_blank(),
+      panel.grid.minor=element_blank(),
+      panel.grid.major.x=element_blank(),
+      legend.position="right",
+      legend.direction="vertical",
+      legend.justification="center",
+      strip.background=element_blank(),
+      axis.ticks.y=element_blank(),
+      axis.ticks.x=element_line(colour=colour),
+      plot.caption=element_text(hjust=0,colour=colour,size=10),
+      plot.title=element_text(colour=colour),
+      plot.subtitle=element_text(colour=colour)
+    )
+}
+
+# custom ggplot theme
+theme_simple_h <- function (base_size=12,base_family=NULL,colour="grey60") {
+  theme_bw(base_size=base_size,base_family=base_family) %+replace%
+    theme(
+      panel.border=element_blank(),
+      panel.grid=element_blank(),
+      legend.justification="center",
+      legend.position="top",
+      legend.direction="horizontal",
+      strip.background=element_blank(),
+      axis.ticks=element_blank(),
+      axis.text=element_blank(),
+      axis.title=element_blank(),
+      plot.caption=element_text(hjust=0,colour=colour,size=10),
+      plot.title=element_text(colour=colour),
+      plot.subtitle=element_text(colour=colour)
+    )
+}
+
+# custom ggplot theme
+theme_simple_v <- function (base_size=12,base_family=NULL,colour="grey60") {
+  theme_bw(base_size=base_size,base_family=base_family) %+replace%
+    theme(
+      panel.border=element_blank(),
+      panel.grid=element_blank(),
+      legend.justification="center",
+      legend.position="right",
+      legend.direction="vertical",
+      strip.background=element_blank(),
+      axis.ticks=element_blank(),
+      axis.text=element_blank(),
+      axis.title=element_blank(),
+      plot.caption=element_text(hjust=0,colour=colour,size=10),
+      plot.title=element_text(colour=colour),
+      plot.subtitle=element_text(colour=colour)
+    )
+}
+
+#colours
+col_sll_green <- "#95C11E"
+col_sll_blue <- "#0093BD"
+col_sll_orange <- "#EF7C00"
+col_sll_green_light <- "#f4f8e8"
+col_sll_blue_light <- "#e5f4f8"
+col_sll_orange_light <- "#fdf1e5"
+
+```
+
+
+</br>
+
+```{r,eval=FALSE,echo=FALSE}
+# manually run this to render this document to HTML
+rmarkdown::render("scRNAseqExercise.Rmd")
+# then run this to convert HTML to PDF (if needed)
+#pagedown::chrome_print("nbis-report.html",output="nbis-report.pdf")
+```
+
+
+```{r}
+suppressPackageStartupMessages({
+    library(Seurat)
+    library(Matrix)
+    library(ggplot2)
+    library(patchwork)
+    # remotes::install_github("chris-mcginnis-ucsf/DoubletFinder", upgrade = FALSE, dependencies = TRUE)
+    library(DoubletFinder)
+    library(scater)
+})
+```
+
+
+# Import data
+
+## Download the data
+
+```{r}
+# url for source and intermediate data
+path_data <- "https://export.uppmax.uu.se/naiss2023-23-3/workshops/workshop-scrnaseq"
+
+path <- "./data/"
+if (!dir.exists(path)) dir.create(path, recursive = T)
+
+path_results <- "./results"
+if (!dir.exists(path_results)) dir.create(path_results, recursive = T)
+
+path_file <- file.path(path, "normal_pbmc_5.h5")
+if (!file.exists(path_file)) {
+  download.file(url = file.path(file.path(path_data, "covid"), i), destfile = path_file)
+}
+```
+
+## Create Seurat objects
+
+```{r}
+
+ctrl.5 <- Seurat::Read10X_h5(
+    filename = file.path(path, "normal_pbmc_5.h5"),
+    use.names = T
+)
+
+data <- CreateSeuratObject(ctrl.5, project = "ctrl_5")
+
+# Check the seurat object
+data
+# How many genes do we have in the dataset?
+# How many samples do we have in the dataset?
+
+# Let's check the count matrix
+data[["RNA"]]$counts[1:5, 1:5]
+# What are the rows?
+# What are the columns?
+```
+
+# Calculate QC
+
+We can now start calculating some quality metrics. We can for example calculate the percentage of mitochondrial and ribosomal protein genes per cell and add to the metadata. The proportion of hemoglobin genes can give an indication of read blood cell contaminiation. The QC metrics are finally added to the metadata table.
+```{r}
+# First let's check the metadata we have so far
+data@meta.data[1:5, ]
+# What does each column represent?
+
+# Calcualte mitochondrial gene transcript percentage
+data <- PercentageFeatureSet(data, "^MT-", col.name = "percent_mito")
+# Percentage of ribosomal gene transcript percentage
+data <- PercentageFeatureSet(data, "^RP[SL]", col.name = "percent_ribo")
+# Percentage of hemoglobin genes - includes all genes starting with HB except HBP.
+data <- PercentageFeatureSet(data, "^HB[^(P|E|S)]", col.name = "percent_hb")
+# Percentage for some platelet markers
+data <- PercentageFeatureSet(data, "PECAM1|PF4", col.name = "percent_plat")
+
+# Let's check the metadata again
+data@meta.data[1:5, ]
+```
+
+
+# Plot QC metrices
+
+```{r}
+feats <- c("nFeature_RNA", "nCount_RNA", "percent_mito", "percent_ribo", "percent_hb", "percent_plat")
+VlnPlot(data, features = feats, pt.size = 0.1, ncol = 3)
+```
+
+```{r}
+FeatureScatter(data, "nCount_RNA", "nFeature_RNA", pt.size = .5)
+# What's the relationship between nCount_RNA and nFeature_RNA?
+FeatureScatter(data, "nCount_RNA", "percent_mito", pt.size = .5)
+# Do those cells with high percent_mito tend to have high or low nCount_RNA? What does that mean?
+FeatureScatter(data, "nCount_RNA", "percent_ribo", pt.size = .5)
+# Do those cells with low percent_ribo tend to have high or low nCount_RNA? What does this mean?
+FeatureScatter(data, "nCount_RNA", "percent_hb", pt.size = .5)
+FeatureScatter(data, "nCount_RNA", "percent_plat", pt.size = .5)
+FeatureScatter(data, "percent_mito", "percent_ribo", pt.size = .5)
+# Do those cells with low percent_ribo tend to have high or low percent_mito? What does this mean?
+```
+
+# Filtering
+
+## Detection-based filtering
+
+A standard approach is to filter cells with low number of reads as well as genes that are present in at least a given number of cells. Here we will only consider cells with at least 200 detected genes and genes need to be expressed in at least 3 cells. Please note that those values are highly dependent on the library preparation method used.
+
+```{r}
+# Check how many cells and genes to start with
+dim(data)
+selected_c <- WhichCells(data, expression = nFeature_RNA > 200)
+selected_f <- rownames(data)[Matrix::rowSums(data) > 3]
+data.filt <- subset(data, features = selected_f, cells = selected_c)
+# Check how many cells and genes left?
+dim(data.filt)
+table(data.filt$orig.ident)
+```
+
+Additionally, we can also see which genes contribute the most to such reads, we can for instance plot the percentage of ocunts per gene
+
+```{r, fig.height=6, fig.width=10}
+# Compute the proportion of counts of each gene per cell
+# Use sparse matrix operations, if your dataset is large, doing matrix devisions the regular way will take a very long time.
+C <- data.filt[["RNA"]]$counts
+C@x <- C@x / rep.int(colSums(C), diff(C@p)) * 100
+most_expressed <- order(Matrix::rowSums(C), decreasing = T)[20:1]
+par(mar = c(2, 5, 2, 2)) # change margin size (bottom, left, top, right)
+boxplot(as.matrix(t(C[most_expressed, ])),
+    cex = 0.1, las = 1, xlab = "Percent counts per cell",
+    col = (scales::hue_pal())(20)[20:1], horizontal = TRUE
+)
+```
+
+As you can see, MALAT1 continutes up to 30% of the UMIs from a single cell and the other top genes are mitochondrial genes and ribosomal genes.
+
+## Mitochondrial gene transcript filtering
+
+From the FeatureScatter(data, "nCount_RNA", "percent_mito", pt.size = .5) generated plot above, we can see that we have quite a lot of cells with high proportion of mitochondrial and low nCount_RNA. It would be wise to remove those cells, if we have enough cells left after filtering. Another option would be to either remove all mitochondrial reads from the dataset and hope that the remaining genes still have enough biological signal. A third option would be to just regress out the percent_mito variable during scaling. In this case we had as much as 99.7% mitochondrial reads in some of the cells, so it is quite unlikely that there is much cell type signature left in those, it's better to remove those cells.
+
+We will obtain an adaptive threshold for the filtering, and assume that most of the dataset consists of high-quality cells. We then identify cells that are outliers for the various QC metrics, based on the median absolute deviation (MAD) from the median value of each metric across all cells. Specifically, a value is considered an outlier if it is more than 3 MADs from the median in the “problematic” direction. This is loosely motivated by the fact that such a filter will retain 99% of non-outlier values that follow a normal distribution.
+
+```{r}
+outlier_mt = isOutlier(data.filt@meta.data$percent_mito, nmads=3, type="higher", log=F) 
+data.filt@meta.data$outlier_mt = as.vector(outlier_mt)
+outlier_nCount_RNA = isOutlier(data.filt$nCount_RNA, nmads=3, type="lower", log=T)
+data.filt@meta.data$outlier_nCount_RNA = as.vector(outlier_nCount_RNA)
+# A cell that is an outlier for any of these metrics is considered to be of low quality and discarded.
+data.filt@meta.data$Outlier_combined = data.filt@meta.data$outlier_mt | data.filt@meta.data$outlier_nCount_RNA
+# Check the metadata table:
+data.filt@meta.data[1:5, ]
+
+# Now let's remove the identified outliers:
+data.filt = subset(data.filt, Outlier_combined=="FALSE")
+
+# Let's check how many cells do we have left now:
+dim(data.filt)
+```
+
+Now let's plot the QC metrics again:
+
+```{r}
+feats <- c("nFeature_RNA", "nCount_RNA", "percent_mito", "percent_ribo", "percent_hb", "percent_plat")
+VlnPlot(data.filt, features = feats, pt.size = 0.1, ncol = 3)
+```
+
+```{r}
+FeatureScatter(data.filt, "nCount_RNA", "nFeature_RNA", pt.size = .5)
+FeatureScatter(data.filt, "nCount_RNA", "percent_mito", pt.size = .5)
+FeatureScatter(data.filt, "nCount_RNA", "percent_ribo", pt.size = .5)
+FeatureScatter(data.filt, "nCount_RNA", "percent_hb", pt.size = .5)
+FeatureScatter(data.filt, "nCount_RNA", "percent_plat", pt.size = .5)
+FeatureScatter(data.filt, "percent_mito", "percent_ribo", pt.size = .5)
+```
+
+Compare the plots to those above, do you think the filtering works?
+
+
+## Filter genes
+
+```{r}
+dim(data.filt)
+
+# Filter MALAT1
+data.filt <- data.filt[!grepl("MALAT1", rownames(data.filt)), ]
+
+# Filter Mitocondrial
+data.filt <- data.filt[!grepl("^MT-", rownames(data.filt)), ]
+
+# Filter Ribossomal gene (optional if that is a problem on your data)
+# data.filt <- data.filt[ ! grepl("^RP[SL]", rownames(data.filt)), ]
+
+# Filter Hemoglobin gene (optional if that is a problem on your data)
+data.filt <- data.filt[!grepl("^HB[^(P|E|S)]", rownames(data.filt)), ]
+
+dim(data.filt)
+```
+
+
+# Cell cycle scoring
+
+```{r}
+# Before running CellCycleScoring the data need to be normalized and logtransformed.
+data.filt <- NormalizeData(data.filt)
+data.filt <- CellCycleScoring(
+    object = data.filt,
+    g2m.features = cc.genes$g2m.genes,
+    s.features = cc.genes$s.genes
+)
+
+```
+
+```{r}
+VlnPlot(data.filt, features = c("S.Score", "G2M.Score"), group.by = "orig.ident", ncol = 3, pt.size = .1)
+```
+
+```{r}
+FeatureScatter(data.filt, "S.Score", "G2M.Score", group.by = "Phase")
+```
+
+Seurat does an automatic prediction of cell cycle phase with a default cutoff of the scores at zero. As you can see this does not fit this data very well (think about it, S.Score and G2M.Score close to 0), so be cautious with using these predictions. Instead we suggest that you look at the scores.
+
+# Remove doublets
+
+Here, we will use `DoubletFinder` to predict doublet cells. But before doing doublet detection we need to run scaling, variable gene selection and PCA, as well as UMAP for visualization. These steps will be explored in more detail in coming exercises.
+
+```{r}
+data.filt <- FindVariableFeatures(data.filt, verbose = F)
+data.filt <- ScaleData(data.filt, vars.to.regress = c("nFeature_RNA", "percent_mito"), verbose = F)
+data.filt <- RunPCA(data.filt, verbose = F, npcs = 20)
+data.filt <- RunUMAP(data.filt, dims = 1:10, verbose = F)
+```
+
+Then we run doubletFinder, selecting first 10 PCs and a `pK` value of 0.9. To optimize the parameters, you can run the `paramSweep` function in the package.
+
+```{r}
+# set seed
+set.seed(8)
+
+#ref: https://uofuhealth.utah.edu/huntsman/shared-resources/gcb/htg/single-cell/genomics-10x
+cells.nr = ncol(data.filt)
+nExp.pois = if (cells.nr < 750) {
+    round(cells.nr * 0.04)
+  } else if (cells.nr < 1500) {
+    round(cells.nr * 0.008)
+  } else if (cells.nr < 2500) {
+    round(cells.nr * 0.016)
+  } else if (cells.nr < 3500) {
+    round(cells.nr * 0.023)
+  } else if (cells.nr < 4500) {
+    round(cells.nr * 0.031)
+  } else if (cells.nr < 5500) {
+    round(cells.nr * 0.039)
+  } else if (cells.nr < 6500) {
+    round(cells.nr * 0.046)
+  } else if (cells.nr < 7500) {
+    round(cells.nr * 0.054)
+  } else if (cells.nr < 8500) {
+    round(cells.nr * 0.061)
+  } else if (cells.nr < 9500) {
+    round(cells.nr * 0.069)
+  } else {
+    round(cells.nr * 0.076)
+  }
+nExp.pois
+
+# Find significant PCs
+stdv <- data.filt[["pca"]]@stdev
+sum.stdv <- sum(data.filt[["pca"]]@stdev)
+percent.stdv <- (stdv / sum.stdv) * 100
+cumulative <- cumsum(percent.stdv)
+co1 <- which(cumulative > 90 & percent.stdv < 5)[1]
+co2 <- sort(which((percent.stdv[1:length(percent.stdv) - 1] - 
+                     percent.stdv[2:length(percent.stdv)]) > 0.1), 
+            decreasing = T)[1] + 1
+min.pc <- min(co1, co2)
+min.pc
+
+# pK identification (no ground-truth)
+sweep.list <- paramSweep(data.filt, PCs = 1:min.pc, num.cores = 1) #detectCores() - 1)
+sweep.stats <- summarizeSweep(sweep.list)
+bcmvn <- find.pK(sweep.stats)
+
+# Optimal pK is the max of the bimodality coefficent (BCmvn) distribution
+bcmvn.max <- bcmvn[which.max(bcmvn$BCmetric),]
+optimal.pk <- bcmvn.max$pK
+optimal.pk <- as.numeric(levels(optimal.pk))[optimal.pk]
+optimal.pk
+
+# run DoubletFinder
+data.filt <- doubletFinder(seu = data.filt, 
+                        PCs = 1:min.pc, 
+                        pK = optimal.pk,
+                        nExp = nExp.pois)
+metadata <- data.filt@meta.data
+colnames(metadata)[ncol(metadata)] <- "doublet_finder"
+data.filt@meta.data <- metadata 
+ 
+head(data.filt@meta.data) 
+table(data.filt@meta.data$doublet_finder)
+```
+
+
+
+# Save data
+
+```{r}
+saveRDS(data.filt, "results/data.filt.RDS")
+```
+
+
+
+# Recap
+
+We did data filetring, normalization and cell cycle scoring in this tutorial
+
+* Filtering
+- Filter cells (detection-based filtering; mito filtering)
+- Filter genes (mito, Hb, Highly expressed genes)
+- Remove doublets
+* Normalization
+* Cell cycle scoring
+
+# Session info
+
+```{r}
+sessionInfo()
+```
+
+
+
+
+
