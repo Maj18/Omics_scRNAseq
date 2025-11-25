@@ -1,0 +1,509 @@
+---
+title: "scRNAseq exercise"
+subtitle: '`r format(Sys.Date(),format="%d-%b-%Y")`'
+author: Yuan Li (yuan.li@nbis.se)
+output:
+  rmarkdown::html_document:
+    toc: true
+    toc_float:
+      collapsed: true
+      smooth_scroll: true
+      print: false
+    toc_depth: 4
+    number_sections: true
+    highlight: tango
+    df_print: paged
+    code_folding: "show" #show
+    self_contained: true
+    keep_md: false
+    encoding: 'UTF-8'
+    css: "assets/report.css"
+---
+
+```{r,child="assets/_header-lab.Rmd"}
+```
+
+<!-- ----------------------- Do not edit above this ----------------------- -->
+
+```{r,echo=FALSE,include=FALSE}
+# CUSTOM VARIABLES
+
+# custom ggplot theme
+theme_report_h <- function (base_size=12,base_family=NULL,colour="grey60") {
+  theme_bw(base_size=base_size,base_family=base_family) %+replace%
+    theme(
+      panel.border=element_blank(),
+      panel.grid.minor=element_blank(),
+      panel.grid.major.x=element_blank(),
+      legend.position="top",
+      legend.direction="horizontal",
+      legend.justification="center",
+      strip.background=element_blank(),
+      axis.ticks.y=element_blank(),
+      axis.ticks.x=element_line(colour=colour),
+      plot.caption=element_text(hjust=0,colour=colour,size=10),
+      plot.title=element_text(colour=colour),
+      plot.subtitle=element_text(colour=colour)
+    )
+}
+
+# custom ggplot theme
+theme_report <- theme_report_v <- function (base_size=12,base_family=NULL,colour="grey60") {
+  theme_bw(base_size=base_size,base_family=base_family) %+replace%
+    theme(
+      panel.border=element_blank(),
+      panel.grid.minor=element_blank(),
+      panel.grid.major.x=element_blank(),
+      legend.position="right",
+      legend.direction="vertical",
+      legend.justification="center",
+      strip.background=element_blank(),
+      axis.ticks.y=element_blank(),
+      axis.ticks.x=element_line(colour=colour),
+      plot.caption=element_text(hjust=0,colour=colour,size=10),
+      plot.title=element_text(colour=colour),
+      plot.subtitle=element_text(colour=colour)
+    )
+}
+
+# custom ggplot theme
+theme_simple_h <- function (base_size=12,base_family=NULL,colour="grey60") {
+  theme_bw(base_size=base_size,base_family=base_family) %+replace%
+    theme(
+      panel.border=element_blank(),
+      panel.grid=element_blank(),
+      legend.justification="center",
+      legend.position="top",
+      legend.direction="horizontal",
+      strip.background=element_blank(),
+      axis.ticks=element_blank(),
+      axis.text=element_blank(),
+      axis.title=element_blank(),
+      plot.caption=element_text(hjust=0,colour=colour,size=10),
+      plot.title=element_text(colour=colour),
+      plot.subtitle=element_text(colour=colour)
+    )
+}
+
+# custom ggplot theme
+theme_simple_v <- function (base_size=12,base_family=NULL,colour="grey60") {
+  theme_bw(base_size=base_size,base_family=base_family) %+replace%
+    theme(
+      panel.border=element_blank(),
+      panel.grid=element_blank(),
+      legend.justification="center",
+      legend.position="right",
+      legend.direction="vertical",
+      strip.background=element_blank(),
+      axis.ticks=element_blank(),
+      axis.text=element_blank(),
+      axis.title=element_blank(),
+      plot.caption=element_text(hjust=0,colour=colour,size=10),
+      plot.title=element_text(colour=colour),
+      plot.subtitle=element_text(colour=colour)
+    )
+}
+
+#colours
+col_sll_green <- "#95C11E"
+col_sll_blue <- "#0093BD"
+col_sll_orange <- "#EF7C00"
+col_sll_green_light <- "#f4f8e8"
+col_sll_blue_light <- "#e5f4f8"
+col_sll_orange_light <- "#fdf1e5"
+
+```
+
+```{r Setup, echo = FALSE}
+knitr::opts_chunk$set(fig.width  = 7,
+                      results    = "hold",
+                      message    = FALSE,
+                      cache.lazy = FALSE,
+                      warning    = FALSE)
+```
+
+
+</br>
+
+```{r,eval=FALSE,echo=FALSE}
+# manually run this to render this document to HTML
+# rmarkdown::render("scRNAseq_lab1.Rmd")
+# then run this to convert HTML to PDF (if needed)
+# pagedown::chrome_print("scRNAseq_lab1.html",output="scRNAseq_lab2.pdf")
+```
+
+First of all, we need to install some R packages:
+
+```{r, eval=F}
+# In R:
+install.packages("Seurat")
+install.packages("ggplot2")
+install.packages("Matrix", repos="http://R-Forge.R-project.org")
+install.packages("patchwork")
+install.packages("remotes")
+remotes::install_github("chris-mcginnis-ucsf/DoubletFinder",
+                        upgrade = FALSE, dependencies = TRUE)
+if (!require("BiocManager", quietly = TRUE))
+    install.packages("BiocManager")
+BiocManager::install("scater", dependencies = TRUE)
+install.packages("dplyr")
+```
+
+```
+If the installation doesn't work, you can also try the docker container below:
+docker pull yuanli202004/seurat5:v.1
+docker run -it --rm -v $(pwd):/data/ yuanli202004/seurat5:v.1 bash
+```
+
+Import packages: 
+
+```{r}
+suppressPackageStartupMessages({
+    library(Seurat)
+    library(Matrix)
+    library(ggplot2)
+    library(patchwork)
+    library(DoubletFinder)
+    library(scater)
+})
+```
+
+# Import data
+
+The data we are analyzing now is from human peripheral blood mononuclear cells (PBMC) of healthy people, 
+it's only one single cell RNAseq dataset (acquired with the 10X Genomics technique), so no batch!
+
+It has already been preprocessed here, so need to run cellRanger by ourself!
+
+```{r}
+data = readRDS("../data/normal_pbmc_5.RDS")
+# Check the Seurat object
+data
+```
+
+The dataset is now in the format of a Seurat object. The dataset has 1500 cells and 33538 genes. This object has only one assay so far: RNA. No highly variable genes have been selected yet. Within the RNA assay, there is only one data layer called `counts`, which is the raw count data, it hasn't been normalized yet.
+
+Check the raw count data:
+
+```{r}
+data[["RNA"]]$counts[1:5, 1:30]
+```
+
+The raw count data is now in a class dgCMatrix object. 
+
+dgCMatrix is a class of sparse numeric matrices. 
+
+In the sparse matrices, zeros are represented as ".". 
+
+Sparse matrix saves memory when there are lots of zeros, which is typical for single cell data.
+
+The rows of the counts matrix are genes, while the columns are cells (represented by cell barcodes)
+
+
+# Calculate quality control (QC) metrics for filtering
+
+We can now start calculating some quality control metrics. We can for example calculate the percentage of mitochondrial protein genes per cell and add it to the metadata. 
+
+First let's check the metadata we have so far
+
+```{r}
+data@meta.data[1:5, ]
+```
+
+* row: cell
+* nCount_RNA: total UMI count per cell
+* nFeature_RNA: the number of genes that have been detected in a cell
+
+```{r}
+# Calcualte mitochondrial gene transcript percentage
+data = PercentageFeatureSet(data, "^MT-", col.name = "percent_mito")
+
+# Let's check the metadata again
+data@meta.data[1:5, ]
+# Can you see percent_mito now?
+```
+
+Now we get the metadata columns: percent_mito in the metadata table
+
+## Plot QC metrics
+
+```{r, warning=F, error=F, message=F}
+feats = c("nFeature_RNA", "nCount_RNA", "percent_mito")
+VlnPlot(data, features = feats, pt.size = 0.1, ncol = 3)
+```
+
+We can also make some scatter plots to understand the relationship between different metadata:
+
+```{r}
+FeatureScatter(data, "nCount_RNA", "nFeature_RNA", pt.size = .5)
+# What's the relationship between nCount_RNA and nFeature_RNA? Are they positively correlated?
+```
+
+```{r}
+FeatureScatter(data, "nCount_RNA", "percent_mito", pt.size = .5)
+# Do those cells with high percent_mito tend to have low nCount_RNA? What does that mean?
+```
+
+# Filtering
+
+## Detection-based filtering
+
+### Selet genes that are not lowly captured
+
+So that we can remove lowly captured genes
+
+```{r}
+# We select genes expressed in more than 3 cells:
+selected_f = rownames(data)[Matrix::rowSums(data[["RNA"]]$counts>0) > 3]
+```
+
+### Select cells that capture more than 200 genes:
+
+So that we can remove empty/dying cells.
+
+```{r}
+selected_c = WhichCells(data, expression = nFeature_RNA > 200)
+```
+
+### Only keep the selected genes and cells:
+
+```{r}
+# Check how many cells and genes to start with
+dim(data)
+
+# Subset the seurat object to only keep the selected genes and cells:
+data.filt = subset(data, features = selected_f, cells = selected_c)
+
+# Check how many cells and genes left?
+dim(data.filt)
+
+```
+
+
+## Filter out broken, low quality cells further
+
+This is mainly relevant for single cell RNAseq, may also be useful for single nucleus RNAseq!
+
+From the FeatureScatter(data, "nCount_RNA", "percent_mito", pt.size = .5)-generated plot above, we can see that we have quite a lot of cells with high proportion of mitochondrial and low nCount_RNA. 
+Those may be broken cells, it would be wise to remove them. 
+
+```{r}
+# Select outlier cells with too high mitochondiral gene percentages
+## We use a threshold of 3 MADs (Median Absolute Deviations) above the median as a cutoff
+outlier_mt = isOutlier(data.filt@meta.data$percent_mito, nmads=3, type="higher", log=F) 
+data.filt@meta.data$outlier_mt = as.vector(outlier_mt)
+
+# Select outlier cells with too low total cell UMI count
+## We use a threshold of 3 MADs (Median Absolute Deviations) below the median as a cutoff
+outlier_nCount_RNA = isOutlier(data.filt$nCount_RNA, nmads=3, type="lower", log=T)
+data.filt@meta.data$outlier_nCount_RNA = as.vector(outlier_nCount_RNA)
+
+# Combine the outlier information and add it to the metadata
+data.filt@meta.data$Outlier_combined = data.filt@meta.data$outlier_mt | data.filt@meta.data$outlier_nCount_RNA
+
+# Check the metadata table:
+data.filt@meta.data[1:5, ]
+
+# Now let's remove the identified outlier cells with either too high mitochondrial genes or too low total cell UMI count.
+data.filt = subset(data.filt, Outlier_combined=="FALSE")
+
+# Let's check how many cells do we have left now:
+dim(data.filt)
+```
+
+## Plot the QC metrics again:
+
+```{r}
+feats = c("nFeature_RNA", "nCount_RNA", "percent_mito")
+VlnPlot(data.filt, features = feats, pt.size = 0.1, ncol = 3)
+```
+
+And also check the relationship between QC metrics as well
+
+```{r}
+FeatureScatter(data.filt, "nCount_RNA", "nFeature_RNA", pt.size = .5)
+FeatureScatter(data.filt, "nCount_RNA", "percent_mito", pt.size = .5)
+```
+
+Compare the plots to those before filtering, do you think the filtering works?
+
+
+# Feel data
+
+You can also make a histogram of the counts data
+
+```{r}
+# Check the 1st gene:
+hist(data.filt[["RNA"]]$counts[1,], bin=30)
+```
+
+```{r}
+# Check the 45th gene
+hist(data.filt[["RNA"]]$counts[45,], bin=30)
+```
+
+How many zero counts do we have?
+
+Check the zero rates of the Count data: 
+
+```{r}
+counts = data.filt@assays$RNA$counts
+(sum(counts==0)/(nrow(counts) * ncol(counts)))*100
+```
+
+
+# Normalization using SCTransform()
+
+Here, we will use SCTransform() to normalize the data:
+
+```{r, warning=F, error=F, message=F}
+data.filt = SCTransform(data.filt, assay = "RNA", 
+                        new.assay.name = "SCT", 
+                        variable.features.n = 2000,
+                        do.scale=T, do.center = T, 
+                        return.only.var.genes = T)
+```
+
+The SCTransform() function perform 3 tasks in on go:
+
+  * Normalizaiton
+  * Select highly variable genes
+  * Scaling
+
+Let's look at the SCT assay generated by SCTransform()
+
+```{r}
+data.filt
+```
+You can see, we now got a new assay SCT, which is the currently active assay. It contains 3 layers: count, data, and scale.data. 
+
+* scale.data: Pearson residuals from the NB GLM model
+* counts: corrected counts with sequencing depth effect removed, now the genes are supposed to be comparable among cells. This is the normalized count!
+* data: log transformed corrected count
+
+## Scaled data
+
+In the SCT assay, the scaled data are the pearson residuals from the NB GLM modeling
+
+It is placed in the scale.data slot of the SCT assay
+
+```{r}
+data.filt[["SCT"]]
+data.filt[["SCT"]]$scale.data[1:5, 1:5]
+```
+
+## Highly variable genes
+
+```{r}
+# Let's first check how many highly variable genes have been selected:
+data.filt
+```
+
+Let's also visualize highly variable genes/HVGs
+
+HVGs are selected based on the the variance of the scaled data,
+
+Pearson residuals are supposed to mainly reflect biological variation.
+
+The calculation of residual variance is slightly more complicated than just applying the `var` function, for details, see the [get_residual_Var function](https://rdrr.io/github/satijalab/sctransform/src/R/utils.R)
+
+```{r}
+top20 = head(VariableFeatures(data.filt), 20)
+LabelPoints(plot = VariableFeaturePlot(data.filt, 
+    selection.method = "sct", assay = "SCT"), 
+    points = top20, repel = TRUE)
+```
+
+# Cell cycle scoring
+
+Here we will run cell cycle scoring to assign cells to different cell cycle phases (S phase, G2M phase).
+
+We will get 2 scores:
+
+* S.Score = average standardized expression of S genes
+* G2M.Score = average standardized expression of G2M genes
+
+```{r, warning=F, error=F, message=F}
+## Let's check what are the S genes
+cc.genes$s.genes
+
+## And also check what are the G2M genes
+cc.genes$g2m.genes
+
+## Let's do cell cycle scoring:
+data.filt = CellCycleScoring(
+    object = data.filt, 
+    g2m.features = cc.genes$g2m.genes,
+    s.features = cc.genes$s.genes
+)
+
+# Check the metadata table, do you see the cell cycle phase scores now:
+data.filt@meta.data[1:5, ]
+```
+
+Let's plot the cell cycle scores
+
+```{r}
+VlnPlot(data.filt, features = c("S.Score", "G2M.Score"), 
+  group.by = "orig.ident", ncol = 2, pt.size = .1)
+```
+
+Seurat does an automatic prediction of cell cycle phases with a default cutoff of the scores at zero.
+
+Let's also look at the predict cell cycle phases:
+
+```{r}
+FeatureScatter(data.filt, "S.Score", "G2M.Score", group.by = "Phase")
+```
+
+As you can see this does not fit this data very well (think about it, S.Score and G2M.Score close to 0), so be cautious with using these predictions. 
+Instead we suggest that you look at the scores.
+
+# Remove doublets
+
+We can also remove doublets, remember what doublets are? Why do we need to remove them
+Here, we will use `DoubletFinder` to predict doublet cells. 
+
+```{r}
+source("../src/rmDoublets.R")
+data.filt = rmDoublets(data.filt)
+```
+
+Now let's check the metadata again, can you tell how many doublets have we found?
+
+```{r}
+head(data.filt@meta.data) 
+table(data.filt@meta.data$doublet_finder)
+```
+
+Let's remvoe the doublet cells
+```{r}
+selected_c2 = WhichCells(data.filt, expression = doublet_finder=="Singlet")
+data.filt = subset(data.filt, cells=selected_c2)
+```
+
+# Save seurat object for later exploration
+
+```{r}
+saveRDS(data.filt, "../results/data.filt.RDS")
+```
+
+# Recap
+
+* Filtering
+  - Filter cells: broken cells, low quality cells, doublets
+  - Filter genes: lowly captured genes
+* SCTransform:
+  - Normalization
+  - Select highly variable genes
+  - Scaling
+* Cell cycle scoring
+* We could also remove cell-free RNA contamination using methods like cellbender, soupX .... but is not covered by this tutorial.
+
+
+# Save the package versions (important! Why?)
+
+```{r}
+sessionInfo()
+```
+
