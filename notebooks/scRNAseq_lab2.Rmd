@@ -168,13 +168,18 @@ dummy = SingleCellExperiment::SingleCellExperiment(
   colData=data.filt@meta.data[, c("nCount_RNA", "nFeature_RNA", "percent_mito", 
                                   "S.Score", "G2M.Score", "Phase")])
 explan_pcs = scater::getVarianceExplained(dummy, exprs_values="pc_space")
-
-scater::plotExplanatoryPCs(explan_pcs/100)
+# pdf("explain_pcs.pdf")
+scater::plotExplanatoryPCs(explan_pcs)
+# dev.off()
 ```
 
-From the plot above, we can see that, all shown meta.data explain less than 1% of the variation in the top 3 PCs, we don't really need to regress them out duing `SCTransform`
+From the plot above, we can see that, four shown meta.data (nFeature_RNA, nCount_RNA, S.Score, Phase) explain more than 10% of the variation in the top PC, we may regress them out duing `SCTransform`
 
-but for demonstration, we can regress out S.Score, it won't hurt to do so.
+  - nCount_RNA (i.e. total cell UMI count) are in the NB GLM model by default, so no need to add again, nFeature_RNA is highly positively correlated with nCount_RNA, we shouldn't add it either
+    - The reason that nCount_RNA and nFeature_RNA still explain a big portion of the data variation is because SCTransform only removes the technical component of the total cell UMI count/seq depth, 
+    - the biological component of sequencing depth still remains (e.g. seq depth may differ between different cell types...)
+  - We already know from last tutorial Phase is not accurate, so we will regres out S.Score only. Though sometimes, one may want to keep the cell cycle info in the data.
+  - If you want to, you can regress out percent.mit as well, it is often correlated with cell quality.
 
 Let's run `SCTransform` and regress out S.Score at the same time
 
