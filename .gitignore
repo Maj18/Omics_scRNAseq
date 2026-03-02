@@ -8,3 +8,5 @@ doc/.DS_Store
 notebooks/.DS_Store
 notebooks/assets/.DS_Store
 .DS_Store
+results/data.analyzed.RDS results/data.filt.RDS
+results/
