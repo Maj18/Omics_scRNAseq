@@ -1,2 +1,10 @@
-doc/Copy of TimeEdit_2025-03-28_14_48.xlsx
+add doc/quiz_scRNAseq.txt
+doc/quiz_scRNAseq.txt
+doc/scRNAseq computer lab.docx
+doc/scRNAseq computer lab.pdf
+container/
+data/.DS_Store
+doc/.DS_Store
+notebooks/.DS_Store
+notebooks/assets/.DS_Store
 .DS_Store
